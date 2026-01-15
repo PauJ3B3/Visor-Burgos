@@ -19,56 +19,80 @@
 <div id="map"></div>
 
 <script>
-    // Inicialitzar mapa
+    // Mapa
     var map = L.map('map').setView([42.10997086796638, -3.149189421895146], 15);
 
     // Bases
     var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
-    });
+    }).addTo(map);
 
-    var orto = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles © Esri'
-    });
+    var orto = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { attribution: '© Esri' }
+    );
 
-    // Afegim base per defecte
-    osm.addTo(map);
+    // Cadastre
+    var catastro = L.tileLayer.wms(
+        'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
+            layers: 'Catastro',
+            format: 'image/png',
+            transparent: true,
+            attribution: '© Dirección General del Catastro'
+        }
+    );
 
-    // Cadastre (WMS)
-    var catastro = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
-        layers: 'Catastro',
-        format: 'image/png',
-        transparent: true,
-        attribution: '© Direcció General del Cadastre'
-    });
+    // Grups per categoria
+    var capaC  = L.layerGroup();
+    var capaD  = L.layerGroup();
+    var capaCD = L.layerGroup();
 
-    // GeoJSON (el guardem en una variable per poder-lo posar al control de capes)
-    var capaGeojson = L.layerGroup();
+    // Funció d'estil
+    function estil(color) {
+        return {
+            color: color,
+            weight: 2,
+            fillOpacity: 0.5
+        };
+    }
 
-    fetch('Parc_CD.geojson?v=' + Date.now())  // evita caché
-        .then(response => response.json())
+    // Carregar GeoJSON
+    fetch('Parc_CD.geojson?v=' + Date.now())
+        .then(r => r.json())
         .then(data => {
-            L.geoJSON(data, {
-                style: {
-                    color: '#2e7d32',
-                    weight: 2,
-                    fillOpacity: 0.5
-                },
-                onEachFeature: function (feature, layer) {
-                    if (feature.properties) {
-                        layer.bindPopup(
-                            Object.entries(feature.properties)
-                                .map(([k, v]) => `<b>${k}</b>: ${v}`)
-                                .join('<br>')
-                        );
-                    }
-                }
-            }).addTo(capaGeojson);
 
-            // Afegim el GeoJSON al mapa per defecte
-            capaGeojson.addTo(map);
-        })
-        .catch(err => console.error('Error carregant el GeoJSON:', err));
+            L.geoJSON(data, {
+                filter: f => f.properties.Assignació_finques === 'C',
+                style: estil('#2e7d32'),
+                onEachFeature: popup
+            }).addTo(capaC);
+
+            L.geoJSON(data, {
+                filter: f => f.properties.Assignació_finques === 'D',
+                style: estil('#ef6c00'),
+                onEachFeature: popup
+            }).addTo(capaD);
+
+            L.geoJSON(data, {
+                filter: f => f.properties.Assignació_finques === 'CD',
+                style: estil('#1565c0'),
+                onEachFeature: popup
+            }).addTo(capaCD);
+
+            // Actives per defecte
+            capaC.addTo(map);
+            capaD.addTo(map);
+            capaCD.addTo(map);
+        });
+
+    // Popup
+    function popup(feature, layer) {
+        layer.bindPopup(
+            Object.entries(feature.properties)
+                .map(([k, v]) => `<b>${k}</b>: ${v}`)
+                .join('<br>')
+        );
+    }
 
     // Control de capes
     var baseMaps = {
@@ -77,12 +101,15 @@
     };
 
     var overlayMaps = {
-        "Cadastre": catastro,
-        "Parc_CD (GeoJSON)": capaGeojson
+        "Parc CD – C": capaC,
+        "Parc CD – D": capaD,
+        "Parc CD – CD": capaCD,
+        "Cadastre": catastro
     };
 
     L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
-</script>
 
+</script>
 </body>
 </html>
+
