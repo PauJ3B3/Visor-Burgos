@@ -1,114 +1,172 @@
 <!DOCTYPE html>
 <html lang="ca">
 <head>
-    <meta charset="utf-8">
-    <title>Valle de Valdelaguna</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <title>Valle de Valdelaguna</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Leaflet -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <style>
-        html, body { margin: 0; height: 100%; }
-        #map { width: 100%; height: 100%; }
-    </style>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    #map { width: 100%; height: 100%; }
+
+    /* Botó geolocalització */
+    .locate-btn {
+      background: #fff;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      font-size: 18px;
+      line-height: 30px;
+      text-align: center;
+    }
+  </style>
 </head>
 
 <body>
 <div id="map"></div>
 
 <script>
-    // Mapa
-    var map = L.map('map').setView([42.10997086796638, -3.149189421895146], 15);
+  // --- Mapa ---
+  var map = L.map('map').setView([42.10997086796638, -3.149189421895146], 15);
 
-    // Bases
-    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
+  // --- Capes base ---
+  var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
 
-    var orto = L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { attribution: '© Esri' }
+  var orto = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Tiles © Esri' }
+  );
+
+  // --- Cadastre (WMS) ---
+  var catastro = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
+    layers: 'Catastro',
+    format: 'image/png',
+    transparent: true,
+    attribution: '© Dirección General del Catastro'
+  });
+
+  // --- GeoJSON per categories (Assignació_finques: C, D, CD) ---
+  var capaC  = L.layerGroup();
+  var capaD  = L.layerGroup();
+  var capaCD = L.layerGroup();
+
+  function estil(color) {
+    return { color: color, weight: 2, fillOpacity: 0.5 };
+  }
+
+  function popup(feature, layer) {
+    if (!feature.properties) return;
+    layer.bindPopup(
+      Object.entries(feature.properties)
+        .map(([k, v]) => `<b>${k}</b>: ${v}`)
+        .join('<br>')
     );
+  }
 
-    // Cadastre
-    var catastro = L.tileLayer.wms(
-        'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
-            layers: 'Catastro',
-            format: 'image/png',
-            transparent: true,
-            attribution: '© Dirección General del Catastro'
-        }
-    );
+  fetch('Parc_CD.geojson?v=' + Date.now()) // evita caché a GitHub Pages
+    .then(r => {
+      if (!r.ok) throw new Error('No s’ha pogut carregar Parc_CD.geojson');
+      return r.json();
+    })
+    .then(data => {
+      L.geoJSON(data, {
+        filter: f => (f.properties && f.properties.Assignació_finques === 'C'),
+        style: estil('#2e7d32'),
+        onEachFeature: popup
+      }).addTo(capaC);
 
-    // Grups per categoria
-    var capaC  = L.layerGroup();
-    var capaD  = L.layerGroup();
-    var capaCD = L.layerGroup();
+      L.geoJSON(data, {
+        filter: f => (f.properties && f.properties.Assignació_finques === 'D'),
+        style: estil('#ef6c00'),
+        onEachFeature: popup
+      }).addTo(capaD);
 
-    // Funció d'estil
-    function estil(color) {
-        return {
-            color: color,
-            weight: 2,
-            fillOpacity: 0.5
-        };
+      L.geoJSON(data, {
+        filter: f => (f.properties && f.properties.Assignació_finques === 'CD'),
+        style: estil('#1565c0'),
+        onEachFeature: popup
+      }).addTo(capaCD);
+
+      // Actives per defecte
+      capaC.addTo(map);
+      capaD.addTo(map);
+      capaCD.addTo(map);
+    })
+    .catch(err => console.error(err));
+
+  // --- Control de capes (bases + overlays) ---
+  var baseMaps = {
+    "OpenStreetMap": osm,
+    "Ortofoto": orto
+  };
+
+var overlayMaps = {
+  "Parcel·les C": capaC,
+  "Parcel·les D": capaD,
+  "Parcel·les CD": capaCD,
+  "Cadastre": catastro
+};
+
+
+  L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+
+  // --- Geolocalització (punter posició real) ---
+  var userMarker = null;
+  var userCircle = null;
+
+  function locateUser() {
+    map.locate({
+      setView: true,
+      maxZoom: 18,
+      enableHighAccuracy: true,
+      watch: false
+    });
+  }
+
+  map.on('locationfound', function (e) {
+    var latlng = e.latlng;
+    var acc = e.accuracy; // metres
+
+    if (userMarker) map.removeLayer(userMarker);
+    if (userCircle) map.removeLayer(userCircle);
+
+    userMarker = L.marker(latlng).addTo(map).bindPopup("La meva posició");
+    userCircle = L.circle(latlng, { radius: acc }).addTo(map);
+  });
+
+  map.on('locationerror', function () {
+    alert("No s'ha pogut obtenir la ubicació. Revisa permisos de localització del navegador i el GPS.");
+  });
+
+  // Botó de geolocalització (topleft)
+  var LocateControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd: function () {
+      var btn = L.DomUtil.create('button', 'locate-btn');
+      btn.type = 'button';
+      btn.title = "La meva posició";
+      btn.innerHTML = "📍";
+
+      L.DomEvent.on(btn, 'click', function (ev) {
+        L.DomEvent.stopPropagation(ev);
+        L.DomEvent.preventDefault(ev);
+        locateUser();
+      });
+
+      L.DomEvent.disableClickPropagation(btn);
+      return btn;
     }
+  });
 
-    // Carregar GeoJSON
-    fetch('Parc_CD.geojson?v=' + Date.now())
-        .then(r => r.json())
-        .then(data => {
-
-            L.geoJSON(data, {
-                filter: f => f.properties.Assignació_finques === 'C',
-                style: estil('#2e7d32'),
-                onEachFeature: popup
-            }).addTo(capaC);
-
-            L.geoJSON(data, {
-                filter: f => f.properties.Assignació_finques === 'D',
-                style: estil('#ef6c00'),
-                onEachFeature: popup
-            }).addTo(capaD);
-
-            L.geoJSON(data, {
-                filter: f => f.properties.Assignació_finques === 'CD',
-                style: estil('#1565c0'),
-                onEachFeature: popup
-            }).addTo(capaCD);
-
-            // Actives per defecte
-            capaC.addTo(map);
-            capaD.addTo(map);
-            capaCD.addTo(map);
-        });
-
-    // Popup
-    function popup(feature, layer) {
-        layer.bindPopup(
-            Object.entries(feature.properties)
-                .map(([k, v]) => `<b>${k}</b>: ${v}`)
-                .join('<br>')
-        );
-    }
-
-    // Control de capes
-    var baseMaps = {
-        "OpenStreetMap": osm,
-        "Ortofoto": orto
-    };
-
-    var overlayMaps = {
-        "Parc CD – C": capaC,
-        "Parc CD – D": capaD,
-        "Parc CD – CD": capaCD,
-        "Cadastre": catastro
-    };
-
-    L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
-
+  map.addControl(new LocateControl());
 </script>
 </body>
 </html>
