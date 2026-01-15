@@ -10,32 +10,42 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
-        html, body {
-            margin: 0;
-            height: 100%;
-        }
-        #map {
-            width: 100%;
-            height: 100%;
-        }
+        html, body { margin: 0; height: 100%; }
+        #map { width: 100%; height: 100%; }
     </style>
 </head>
 
 <body>
-
 <div id="map"></div>
 
 <script>
-    // Inicialitzar mapa (Burgos)
+    // Inicialitzar mapa
     var map = L.map('map').setView([42.10997086796638, -3.149189421895146], 15);
 
-    // Capa base
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Bases
+    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
-    }).addTo(map);
+    });
 
-    // Carregar GeoJSON
-    fetch('Parc_CD.geojson')
+    var orto = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles © Esri'
+    });
+
+    // Afegim base per defecte
+    osm.addTo(map);
+
+    // Cadastre (WMS)
+    var catastro = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
+        layers: 'Catastro',
+        format: 'image/png',
+        transparent: true,
+        attribution: '© Direcció General del Cadastre'
+    });
+
+    // GeoJSON (el guardem en una variable per poder-lo posar al control de capes)
+    var capaGeojson = L.layerGroup();
+
+    fetch('Parc_CD.geojson?v=' + Date.now())  // evita caché
         .then(response => response.json())
         .then(data => {
             L.geoJSON(data, {
@@ -53,11 +63,26 @@
                         );
                     }
                 }
-            }).addTo(map);
+            }).addTo(capaGeojson);
+
+            // Afegim el GeoJSON al mapa per defecte
+            capaGeojson.addTo(map);
         })
         .catch(err => console.error('Error carregant el GeoJSON:', err));
+
+    // Control de capes
+    var baseMaps = {
+        "OpenStreetMap": osm,
+        "Ortofoto": orto
+    };
+
+    var overlayMaps = {
+        "Cadastre": catastro,
+        "Parc_CD (GeoJSON)": capaGeojson
+    };
+
+    L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
 </script>
 
 </body>
 </html>
-
